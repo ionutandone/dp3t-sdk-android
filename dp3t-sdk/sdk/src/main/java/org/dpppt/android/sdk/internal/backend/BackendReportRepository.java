@@ -1,12 +1,18 @@
 /*
- * Created by Ubique Innovation AG
- * https://www.ubique.ch
- * Copyright (c) 2020. All rights reserved.
+ * Copyright (c) 2020 Ubique Innovation AG <https://www.ubique.ch>
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * SPDX-License-Identifier: MPL-2.0
  */
 package org.dpppt.android.sdk.internal.backend;
 
 import android.content.Context;
 import androidx.annotation.NonNull;
+
+import java.io.IOException;
 
 import org.dpppt.android.sdk.backend.ResponseCallback;
 import org.dpppt.android.sdk.backend.models.ExposeeAuthMethod;
@@ -44,7 +50,7 @@ public class BackendReportRepository implements Repository {
 				if (response.isSuccessful()) {
 					responseCallback.onSuccess(null);
 				} else {
-					onFailure(call, new ResponseException(response.raw()));
+					onFailure(call, new StatusCodeException(response.raw()));
 				}
 			}
 
@@ -53,6 +59,13 @@ public class BackendReportRepository implements Repository {
 				responseCallback.onError(throwable);
 			}
 		});
+	}
+
+	public void addExposeeSync(@NonNull ExposeeRequest exposeeRequest, ExposeeAuthMethod exposeeAuthMethod) throws IOException {
+		String authorizationHeader = exposeeAuthMethod instanceof ExposeeAuthMethodAuthorization
+									 ? ((ExposeeAuthMethodAuthorization) exposeeAuthMethod).getAuthorization()
+									 : null;
+		reportService.addExposee(exposeeRequest, authorizationHeader).execute();
 	}
 
 }

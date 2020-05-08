@@ -1,7 +1,11 @@
 <!--
-  ~ Created by Ubique Innovation AG
-  ~ https://www.ubique.ch
-  ~ Copyright (c) 2020. All rights reserved.
+  ~ Copyright (c) 2020 Ubique Innovation AG <https://www.ubique.ch>
+  ~
+  ~ This Source Code Form is subject to the terms of the Mozilla Public
+  ~ License, v. 2.0. If a copy of the MPL was not distributed with this
+  ~ file, You can obtain one at https://mozilla.org/MPL/2.0/.
+  ~
+  ~ SPDX-License-Identifier: MPL-2.0
   -->
 
 <resources>
@@ -61,4 +65,7 @@
 	<string name="parameter_advertisement_power_level">Power level of advertising</string>
 	<string name="logs_filter_tags">tag filter (comma separated)</string>
 	<string name="parameter_advertisement_mode">Advertising mode</string>
+	<string name="parameter_scan_mode">Scan Mode</string>
+	<string name="parameter_use_scan_response">Use scan response (active scanning)</string>
+	<string name="version_info">SDK Version Info</string>
 </resources>

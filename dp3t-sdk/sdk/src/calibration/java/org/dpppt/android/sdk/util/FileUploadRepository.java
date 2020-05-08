@@ -1,7 +1,11 @@
 /*
- * Created by Ubique Innovation AG
- * https://www.ubique.ch
- * Copyright (c) 2020. All rights reserved.
+ * Copyright (c) 2020 Ubique Innovation AG <https://www.ubique.ch>
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * SPDX-License-Identifier: MPL-2.0
  */
 package org.dpppt.android.sdk.util;
 
@@ -38,7 +42,7 @@ public class FileUploadRepository {
 		SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss");
 		sdf.setTimeZone(TimeZone.getTimeZone("UTC"));
 		File dbFile = new File(context.getCacheDir(),
-				sdf.format(new Date()) + "_" + name + "_" + DeviceID.getID(context) + "_dp3t_callibration_db.sqlite");
+				sdf.format(new Date()) + "_" + name + "_" + DeviceHelper.getDeviceID(context) + "_dp3t_callibration_db.sqlite");
 
 		try {
 			DP3TCalibrationHelper.exportDb(context, new FileOutputStream(dbFile), () ->

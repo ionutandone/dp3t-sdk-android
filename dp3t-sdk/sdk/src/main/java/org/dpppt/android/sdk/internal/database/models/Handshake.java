@@ -1,7 +1,11 @@
 /*
- * Created by Ubique Innovation AG
- * https://www.ubique.ch
- * Copyright (c) 2020. All rights reserved.
+ * Copyright (c) 2020 Ubique Innovation AG <https://www.ubique.ch>
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * SPDX-License-Identifier: MPL-2.0
  */
 package org.dpppt.android.sdk.internal.database.models;
 
@@ -14,15 +18,14 @@ public class Handshake {
 	private EphId ephId;
 	private int txPowerLevel;
 	private int rssi;
-
 	private String primaryPhy;
 	private String secondaryPhy;
 	private long timestampNanos;
 
-	public Handshake(int id, long timstamp, EphId ephId, int txPowerLevel, int rssi, String primaryPhy, String secondaryPhy,
+	public Handshake(int id, long timestamp, EphId ephId, int txPowerLevel, int rssi, String primaryPhy, String secondaryPhy,
 			long timestampNanos) {
 		this.id = id;
-		this.timestamp = timstamp;
+		this.timestamp = timestamp;
 		this.ephId = ephId;
 		this.txPowerLevel = txPowerLevel;
 		this.rssi = rssi;
@@ -62,6 +65,10 @@ public class Handshake {
 
 	public long getTimestampNanos() {
 		return timestampNanos;
+	}
+
+	public int getAttenuation() {
+		return txPowerLevel - rssi;
 	}
 
 }

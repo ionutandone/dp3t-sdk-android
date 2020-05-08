@@ -1,27 +1,33 @@
+/*
+ * Copyright (c) 2020 Ubique Innovation AG <https://www.ubique.ch>
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * SPDX-License-Identifier: MPL-2.0
+ */
 package org.dpppt.android.sdk.internal.crypto;
+
+import android.content.Context;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
+import org.dpppt.android.sdk.internal.AppConfigManager;
 import org.dpppt.android.sdk.internal.backend.BackendBucketRepository;
 import org.dpppt.android.sdk.internal.database.models.Contact;
 import org.dpppt.android.sdk.internal.database.models.Handshake;
 
 public class ContactsFactory {
 
-	public static final int NUMBER_OF_WINDOWS_FOR_EXPOSURE = 10;
+	private static final long WINDOW_DURATION = 5 * 60 * 1000l;
 
-	private static final long WINDOW_DURATION = 60 * 1000l;
-
-	private static final double BAD_RSSI_THRESHOLD = -85.0;
-	//TODO: set correct value
-	private static final double CONTACT_RSSI_THRESHOLD = -80.0;
-	//TODO: set correct value
-	private static final double EVENT_THRESHOLD = 0.8;
-
-	public static List<Contact> mergeHandshakesToContacts(List<Handshake> handshakes) {
+	public static List<Contact> mergeHandshakesToContacts(Context context, List<Handshake> handshakes) {
 		HashMap<EphId, List<Handshake>> handshakeMapping = new HashMap<>();
+
+		AppConfigManager appConfigManager = AppConfigManager.getInstance(context);
 
 		// group handhakes by id
 		for (Handshake handshake : handshakes) {
@@ -35,35 +41,26 @@ public class ContactsFactory {
 		List<Contact> contacts = new ArrayList<>();
 		for (List<Handshake> handshakeList : handshakeMapping.values()) {
 
-			List<Handshake> filteredHandshakes = new ArrayList<>();
-			for (Handshake handshake : handshakeList) {
-				if (handshake.getRssi() > BAD_RSSI_THRESHOLD) {
-					filteredHandshakes.add(handshake);
-				}
-			}
-
-			Double epochMean = mean(handshakes, (h) -> true);
-			if (epochMean == null) {
-				continue;
-			}
-
 			int contactCounter = 0;
 
-			long epochStartTime = CryptoModule.getEpochStart(handshakeList.get(0).getTimestamp());
+			long startTime = min(handshakeList, (h) -> h.getTimestamp());
 			for (long offset = 0; offset < CryptoModule.MILLISECONDS_PER_EPOCH; offset += WINDOW_DURATION) {
-				long windowStart = epochStartTime + offset;
-				long windowEnd = epochStartTime + offset + WINDOW_DURATION;
-				Double windowMean = mean(handshakes, (h) -> h.getTimestamp() >= windowStart && h.getTimestamp() < windowEnd);
+				long windowStart = startTime + offset;
+				long windowEnd = startTime + offset + WINDOW_DURATION;
+				Double windowMean = mean(handshakeList, (h) -> h.getTimestamp() >= windowStart && h.getTimestamp() < windowEnd);
 
-				if (windowMean != null && windowMean / epochMean > EVENT_THRESHOLD && windowMean > CONTACT_RSSI_THRESHOLD) {
+				if (windowMean != null && windowMean < appConfigManager.getContactAttenuationThreshold()) {
 					contactCounter++;
 				}
 			}
 
-			contacts.add(
-					new Contact(-1, floorTimestampToBucket(handshakeList.get(0).getTimestamp()), handshakeList.get(0).getEphId(),
-							contactCounter,
-							0));
+			if (contactCounter > 0) {
+				contacts.add(
+						new Contact(-1, floorTimestampToBucket(handshakeList.get(0).getTimestamp()),
+								handshakeList.get(0).getEphId(),
+								contactCounter,
+								0));
+			}
 		}
 
 		return contacts;
@@ -77,7 +74,7 @@ public class ContactsFactory {
 				if (valueSum == null) {
 					valueSum = 0.0;
 				}
-				valueSum += handshake.getRssi();
+				valueSum += handshake.getAttenuation();
 				count++;
 			}
 		}
@@ -88,8 +85,24 @@ public class ContactsFactory {
 		}
 	}
 
+	private static <T> Long min(List<T> values, ToLongConverter<T> converter) {
+		Long min = null;
+		for (T val : values) {
+			if (min == null || converter.toLong(val) < min) {
+				min = converter.toLong(val);
+			}
+		}
+		return min;
+	}
+
 	private interface Condition {
 		boolean test(Handshake handshake);
+
+	}
+
+
+	private interface ToLongConverter<T> {
+		long toLong(T value);
 
 	}
 

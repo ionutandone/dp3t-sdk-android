@@ -1,44 +1,52 @@
 /*
- * Created by Ubique Innovation AG
- * https://www.ubique.ch
- * Copyright (c) 2020. All rights reserved.
+ * Copyright (c) 2020 Ubique Innovation AG <https://www.ubique.ch>
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * SPDX-License-Identifier: MPL-2.0
  */
 package org.dpppt.android.sdk;
 
-import android.Manifest;
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.le.AdvertiseCallback;
-import android.bluetooth.le.ScanCallback;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.PackageManager;
-import android.os.PowerManager;
+import android.database.sqlite.SQLiteException;
+import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
 
 import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
 import java.util.Collection;
 import java.util.Date;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
-import org.dpppt.android.sdk.internal.AppConfigManager;
-import org.dpppt.android.sdk.internal.BroadcastHelper;
-import org.dpppt.android.sdk.internal.SyncWorker;
-import org.dpppt.android.sdk.internal.TracingService;
 import org.dpppt.android.sdk.backend.ResponseCallback;
-import org.dpppt.android.sdk.internal.backend.ResponseException;
+import org.dpppt.android.sdk.backend.SignatureException;
 import org.dpppt.android.sdk.backend.models.ApplicationInfo;
 import org.dpppt.android.sdk.backend.models.ExposeeAuthMethod;
+import org.dpppt.android.sdk.backend.models.ExposeeAuthMethodJson;
+import org.dpppt.android.sdk.internal.AppConfigManager;
+import org.dpppt.android.sdk.internal.BroadcastHelper;
+import org.dpppt.android.sdk.internal.ErrorHelper;
+import org.dpppt.android.sdk.internal.SyncWorker;
+import org.dpppt.android.sdk.internal.TracingService;
+import org.dpppt.android.sdk.internal.backend.CertificatePinning;
+import org.dpppt.android.sdk.internal.backend.ServerTimeOffsetException;
+import org.dpppt.android.sdk.internal.backend.StatusCodeException;
 import org.dpppt.android.sdk.internal.backend.models.ExposeeRequest;
 import org.dpppt.android.sdk.internal.crypto.CryptoModule;
 import org.dpppt.android.sdk.internal.database.Database;
-import org.dpppt.android.sdk.internal.database.models.MatchedContact;
-import org.dpppt.android.sdk.internal.gatt.BluetoothServiceStatus;
+import org.dpppt.android.sdk.internal.database.models.ExposureDay;
 import org.dpppt.android.sdk.internal.logger.Logger;
 import org.dpppt.android.sdk.internal.util.DayDate;
 import org.dpppt.android.sdk.internal.util.ProcessUtil;
+
+import okhttp3.CertificatePinner;
+
+import static org.dpppt.android.sdk.internal.util.Base64Util.toBase64;
 
 public class DP3T {
 
@@ -48,11 +56,11 @@ public class DP3T {
 
 	private static String appId;
 
-	public static void init(Context context, String appId) {
-		init(context, appId, false);
+	public static void init(Context context, String appId, PublicKey signaturePublicKey) {
+		init(context, appId, false, signaturePublicKey);
 	}
 
-	public static void init(Context context, String appId, boolean enableDevDiscoveryMode) {
+	public static void init(Context context, String appId, boolean enableDevDiscoveryMode, PublicKey signaturePublicKey) {
 		if (ProcessUtil.isMainProcess(context)) {
 			DP3T.appId = appId;
 			AppConfigManager appConfigManager = AppConfigManager.getInstance(context);
@@ -60,22 +68,26 @@ public class DP3T {
 			appConfigManager.setDevDiscoveryModeEnabled(enableDevDiscoveryMode);
 			appConfigManager.triggerLoad();
 
-			executeInit(context);
+			executeInit(context, signaturePublicKey);
 		}
 	}
 
-	public static void init(Context context, ApplicationInfo applicationInfo) {
+	public static void init(Context context, ApplicationInfo applicationInfo, PublicKey signaturePublicKey) {
 		if (ProcessUtil.isMainProcess(context)) {
 			DP3T.appId = applicationInfo.getAppId();
 			AppConfigManager appConfigManager = AppConfigManager.getInstance(context);
 			appConfigManager.setManualApplicationInfo(applicationInfo);
 
-			executeInit(context);
+			executeInit(context, signaturePublicKey);
 		}
 	}
 
-	private static void executeInit(Context context) {
+	private static void executeInit(Context context, PublicKey signaturePublicKey) {
 		CryptoModule.getInstance(context).init();
+
+		new Database(context).removeOldData();
+
+		SyncWorker.setBucketSignaturePublicKey(signaturePublicKey);
 
 		AppConfigManager appConfigManager = AppConfigManager.getInstance(context);
 		boolean advertising = appConfigManager.isAdvertisingEnabled();
@@ -122,10 +134,8 @@ public class DP3T {
 		checkInit();
 		try {
 			SyncWorker.doSync(context);
-			AppConfigManager.getInstance(context).setLastSyncNetworkSuccess(true);
-		} catch (IOException | ResponseException e) {
-			e.printStackTrace();
-			AppConfigManager.getInstance(context).setLastSyncNetworkSuccess(false);
+		} catch (IOException | StatusCodeException | ServerTimeOffsetException | SQLiteException | SignatureException ignored) {
+			// has been handled upstream
 		}
 	}
 
@@ -133,12 +143,12 @@ public class DP3T {
 		checkInit();
 		Database database = new Database(context);
 		AppConfigManager appConfigManager = AppConfigManager.getInstance(context);
-		Collection<TracingStatus.ErrorState> errorStates = checkTracingStatus(context);
-		List<MatchedContact> matchedContacts = database.getMatchedContacts();
+		Collection<TracingStatus.ErrorState> errorStates = ErrorHelper.checkTracingErrorStatus(context);
+		List<ExposureDay> exposureDays = database.getExposureDays();
 		InfectionStatus infectionStatus;
 		if (appConfigManager.getIAmInfected()) {
 			infectionStatus = InfectionStatus.INFECTED;
-		} else if (matchedContacts.size() > 0) {
+		} else if (exposureDays.size() > 0) {
 			infectionStatus = InfectionStatus.EXPOSED;
 		} else {
 			infectionStatus = InfectionStatus.HEALTHY;
@@ -149,78 +159,9 @@ public class DP3T {
 				appConfigManager.isReceivingEnabled(),
 				appConfigManager.getLastSyncDate(),
 				infectionStatus,
-				matchedContacts,
+				exposureDays,
 				errorStates
 		);
-	}
-
-	private static Collection<TracingStatus.ErrorState> checkTracingStatus(Context context) {
-		Set<TracingStatus.ErrorState> errors = new HashSet<>();
-
-		if (!context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
-			errors.add(TracingStatus.ErrorState.BLE_NOT_SUPPORTED);
-		} else {
-			final BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-			if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
-				errors.add(TracingStatus.ErrorState.BLE_DISABLED);
-			}
-		}
-
-		PowerManager powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
-		boolean batteryOptimizationsDeactivated =
-				powerManager == null || powerManager.isIgnoringBatteryOptimizations(context.getPackageName());
-		if (!batteryOptimizationsDeactivated) {
-			errors.add(TracingStatus.ErrorState.BATTERY_OPTIMIZER_ENABLED);
-		}
-
-		boolean locationPermissionGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
-				PackageManager.PERMISSION_GRANTED;
-		if (!locationPermissionGranted) {
-			errors.add(TracingStatus.ErrorState.MISSING_LOCATION_PERMISSION);
-		}
-
-		if (!AppConfigManager.getInstance(context).getLastSyncNetworkSuccess()) {
-			errors.add(TracingStatus.ErrorState.NETWORK_ERROR_WHILE_SYNCING);
-		}
-
-		if (!errors.contains(TracingStatus.ErrorState.BLE_DISABLED)) {
-			BluetoothServiceStatus bluetoothServiceStatus = BluetoothServiceStatus.getInstance(context);
-			switch (bluetoothServiceStatus.getAdvertiseStatus()) {
-				case BluetoothServiceStatus.ADVERTISE_OK:
-					// ok
-					break;
-				case AdvertiseCallback.ADVERTISE_FAILED_INTERNAL_ERROR:
-				case AdvertiseCallback.ADVERTISE_FAILED_TOO_MANY_ADVERTISERS:
-					errors.add(TracingStatus.ErrorState.BLE_INTERNAL_ERROR);
-					break;
-				case AdvertiseCallback.ADVERTISE_FAILED_FEATURE_UNSUPPORTED:
-					errors.add(TracingStatus.ErrorState.BLE_NOT_SUPPORTED);
-					break;
-				case AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED:
-				case AdvertiseCallback.ADVERTISE_FAILED_DATA_TOO_LARGE:
-				default:
-					errors.add(TracingStatus.ErrorState.BLE_ADVERTISING_ERROR);
-					break;
-			}
-			switch (bluetoothServiceStatus.getScanStatus()) {
-				case BluetoothServiceStatus.SCAN_OK:
-					// ok
-					break;
-				case ScanCallback.SCAN_FAILED_INTERNAL_ERROR:
-					errors.add(TracingStatus.ErrorState.BLE_INTERNAL_ERROR);
-					break;
-				case ScanCallback.SCAN_FAILED_FEATURE_UNSUPPORTED:
-					errors.add(TracingStatus.ErrorState.BLE_NOT_SUPPORTED);
-					break;
-				case ScanCallback.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED:
-				case ScanCallback.SCAN_FAILED_ALREADY_STARTED:
-				default:
-					errors.add(TracingStatus.ErrorState.BLE_SCANNER_ERROR);
-					break;
-			}
-		}
-
-		return errors;
 	}
 
 	public static void sendIAmInfected(Context context, Date onset, ExposeeAuthMethod exposeeAuthMethod,
@@ -238,6 +179,7 @@ public class DP3T {
 						public void onSuccess(Void response) {
 							appConfigManager.setIAmInfected(true);
 							CryptoModule.getInstance(context).reset();
+							stop(context);
 							callback.onSuccess(response);
 						}
 
@@ -252,6 +194,21 @@ public class DP3T {
 		}
 	}
 
+	public static void sendFakeInfectedRequest(Context context, Date onset, ExposeeAuthMethod exposeeAuthMethod)
+			throws NoSuchAlgorithmException, IOException {
+		checkInit();
+
+		DayDate onsetDate = new DayDate(onset.getTime());
+		ExposeeAuthMethodJson jsonAuthMethod = null;
+		if (exposeeAuthMethod instanceof ExposeeAuthMethodJson) {
+			jsonAuthMethod = (ExposeeAuthMethodJson) exposeeAuthMethod;
+		}
+		ExposeeRequest exposeeRequest = new ExposeeRequest(toBase64(CryptoModule.getInstance(context).getNewRandomKey()),
+				onsetDate.getStartOfDayTimestamp(), 1, jsonAuthMethod);
+		AppConfigManager.getInstance(context).getBackendReportRepository(context)
+				.addExposeeSync(exposeeRequest, exposeeAuthMethod);
+	}
+
 	public static void stop(Context context) {
 		checkInit();
 
@@ -263,6 +220,18 @@ public class DP3T {
 		context.startService(intent);
 		SyncWorker.stopSyncWorker(context);
 		BroadcastHelper.sendUpdateBroadcast(context);
+	}
+
+	public static void setMatchingParameters(Context context, float contactAttenuationThreshold, int numberOfWindowsForExposure) {
+		checkInit();
+
+		AppConfigManager appConfigManager = AppConfigManager.getInstance(context);
+		appConfigManager.setContactAttenuationThreshold(contactAttenuationThreshold);
+		appConfigManager.setNumberOfWindowsForExposure(numberOfWindowsForExposure);
+	}
+
+	public static void setCertificatePinner(@NonNull CertificatePinner certificatePinner) {
+		CertificatePinning.setCertificatePinner(certificatePinner);
 	}
 
 	public static IntentFilter getUpdateIntentFilter() {

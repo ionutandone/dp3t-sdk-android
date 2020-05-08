@@ -1,7 +1,11 @@
 /*
- * Created by Ubique Innovation AG
- * https://www.ubique.ch
- * Copyright (c) 2020. All rights reserved.
+ * Copyright (c) 2020 Ubique Innovation AG <https://www.ubique.ch>
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * SPDX-License-Identifier: MPL-2.0
  */
 package org.dpppt.android.sdk.internal.crypto;
 
@@ -40,7 +44,7 @@ public class CryptoModule {
 	public static final int EPHID_LENGTH = 16;
 
 	public static final int NUMBER_OF_DAYS_TO_KEEP_DATA = 21;
-	public static final int NUMBER_OF_DAYS_TO_KEEP_MATCHED_CONTACTS = 10;
+	public static final int NUMBER_OF_DAYS_TO_KEEP_EXPOSED_DAYS = 10;
 	private static final int NUMBER_OF_EPOCHS_PER_DAY = 24 * 4;
 	public static final int MILLISECONDS_PER_EPOCH = 24 * 60 * 60 * 1000 / NUMBER_OF_EPOCHS_PER_DAY;
 	private static final byte[] BROADCAST_KEY = "broadcast key".getBytes();
@@ -73,17 +77,20 @@ public class CryptoModule {
 		try {
 			String stringKey = esp.getString(KEY_SK_LIST_JSON, null);
 			if (stringKey != null) return true; //key already exists
-
-			KeyGenerator keyGenerator = KeyGenerator.getInstance("HmacSHA256");
-			SecretKey secretKey = keyGenerator.generateKey();
 			SKList skList = new SKList();
-			skList.add(Pair.create(new DayDate(System.currentTimeMillis()), secretKey.getEncoded()));
+			skList.add(Pair.create(new DayDate(System.currentTimeMillis()), getNewRandomKey()));
 			storeSKList(skList);
 			return true;
 		} catch (Exception ex) {
 			ex.printStackTrace();
 		}
 		return false;
+	}
+
+	public byte[] getNewRandomKey() throws NoSuchAlgorithmException {
+		KeyGenerator keyGenerator = KeyGenerator.getInstance("HmacSHA256");
+		SecretKey secretKey = keyGenerator.generateKey();
+		return secretKey.getEncoded();
 	}
 
 	protected SKList getSKList() {
@@ -228,14 +235,14 @@ public class CryptoModule {
 			if (daySKPair.first.equals(date)) {
 				return new ExposeeRequest(
 						toBase64(daySKPair.second),
-						daySKPair.first,
+						daySKPair.first.getStartOfDayTimestamp(),
 						jsonAuth);
 			}
 		}
 		if (date.isBefore(skList.get(skList.size() - 1).first)) {
 			return new ExposeeRequest(
 					toBase64(skList.get(skList.size() - 1).second),
-					skList.get(skList.size() - 1).first,
+					skList.get(skList.size() - 1).first.getStartOfDayTimestamp(),
 					jsonAuth);
 		}
 		return null;

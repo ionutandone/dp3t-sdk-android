@@ -1,7 +1,11 @@
 /*
- * Created by Ubique Innovation AG
- * https://www.ubique.ch
- * Copyright (c) 2020. All rights reserved.
+ * Copyright (c) 2020 Ubique Innovation AG <https://www.ubique.ch>
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * SPDX-License-Identifier: MPL-2.0
  */
 package org.dpppt.android.sdk.internal.gatt;
 
@@ -25,7 +29,8 @@ public class BleServer {
 
 	private static final String TAG = "BleServer";
 
-	public static final UUID SERVICE_UUID = UUID.fromString("0000FD6F-0000-1000-8000-00805F9B34FB");
+	private static final String DP3T_16_BIT_UUID = "FD68";
+	public static final UUID SERVICE_UUID = UUID.fromString("0000" + DP3T_16_BIT_UUID + "-0000-1000-8000-00805F9B34FB");
 	public static final UUID TOTP_CHARACTERISTIC_UUID = UUID.fromString("8c8494e3-bab5-1848-40a0-1b06991c0001");
 
 	private final Context context;
@@ -81,20 +86,34 @@ public class BleServer {
 			return BluetoothState.NOT_SUPPORTED;
 		}
 
-		AdvertiseData.Builder advBuilder = new AdvertiseData.Builder();
-		advBuilder.setIncludeTxPowerLevel(true);
-		advBuilder.addServiceUuid(new ParcelUuid(SERVICE_UUID));
-		advBuilder.addServiceData(new ParcelUuid(SERVICE_UUID), getAdvertiseData());
-		advBuilder.setIncludeDeviceName(false);
-
 		AppConfigManager appConfigManager = AppConfigManager.getInstance(context);
 
 		AdvertiseSettings.Builder settingBuilder = new AdvertiseSettings.Builder();
-		settingBuilder.setAdvertiseMode(appConfigManager.getBluetoothAdvertiseMode().getValue());
-		settingBuilder.setTxPowerLevel(appConfigManager.getBluetoothTxPowerLevel().getValue());
+		settingBuilder.setAdvertiseMode(appConfigManager.getBluetoothAdvertiseMode().getSystemValue());
+		settingBuilder.setTxPowerLevel(appConfigManager.getBluetoothTxPowerLevel().getSystemValue());
 		settingBuilder.setConnectable(true);
+		settingBuilder.setTimeout(0);
+		AdvertiseSettings settings = settingBuilder.build();
 
-		mLeAdvertiser.startAdvertising(settingBuilder.build(), advBuilder.build(), advertiseCallback);
+		AdvertiseData.Builder advBuilder = new AdvertiseData.Builder();
+		advBuilder.setIncludeTxPowerLevel(true);
+		advBuilder.setIncludeDeviceName(false);
+		advBuilder.addServiceUuid(new ParcelUuid(SERVICE_UUID));
+
+		if (appConfigManager.isScanResponseEnabled()) {
+			AdvertiseData.Builder scanResponse = new AdvertiseData.Builder();
+			scanResponse.setIncludeTxPowerLevel(false);
+			scanResponse.setIncludeDeviceName(false);
+			scanResponse.addServiceData(new ParcelUuid(SERVICE_UUID), getAdvertiseData());
+			mLeAdvertiser.startAdvertising(settings, advBuilder.build(), scanResponse.build(), advertiseCallback);
+			Logger.d(TAG, "started advertising (with scanResponse), advertiseMode " + settings.getMode() + " powerLevel " +
+					settings.getTxPowerLevel());
+		} else {
+			advBuilder.addServiceData(new ParcelUuid(SERVICE_UUID), getAdvertiseData());
+			mLeAdvertiser.startAdvertising(settings, advBuilder.build(), advertiseCallback);
+			Logger.d(TAG, "started advertising (only advertiseData), advertiseMode " + settings.getMode() + " powerLevel " +
+					settings.getTxPowerLevel());
+		}
 
 		return BluetoothState.ENABLED;
 	}
