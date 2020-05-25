@@ -1,5 +1,36 @@
 # Changelog for DP3T-SDK Android
 
+## Version 0.5.0 (22.5.2020)
+
+- cleanup keyfiles after insertion
+
+## Version 0.4.4 (22.5.2020)
+
+- do not show sync error if syncing/tracing is disabled
+- set sync times to 6am and 6pm local time
+
+## Version 0.4.3 (22.5.2020)
+
+- more flexibility for errorState
+
+## Version 0.4.2 (21.5.2020)
+
+- add new formula for exposure detection
+
+## Version 0.4.1 (21.5.2020)
+
+- improved error notification handling
+- make sure exposure days are only flagged as deleted to prevent renotification
+
+## Version 0.4.0 (19.5.2020)
+
+- switched to GAEN framework
+
+## Version 0.2.6 (8.5.2020)
+
+- Change signing of test calibration app
+- Make location hardware optional
+
 ## Version 0.2.5 (7.5.2020)
 
 - updated contact logic window size to 5min
